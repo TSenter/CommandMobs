@@ -1,0 +1,34 @@
+name: CommandMobs
+description: CommandMobs allows servers to create mobs that run commands and send messages when clicked.
+version: 2.1.0
+author: ZonalYewHD (MisterIosa in-game)
+website: https://github.com/TSenter/CommandMobs/wiki
+main: me.zonalyewhd.commandmobs.CommandMobs
+softdepend:
+  - Vault
+
+commands:
+  commandmobs:
+    description: Main command for CommandMobs
+    aliases:
+      - cm
+      - cmdmobs
+    usage: /<command> [new/customizer] (player/[mobType])
+permissions:
+  cmdmobs.*:
+    description: Gives access to all commands
+  cmdmobs.create:
+    description: Allows the player to create a CommandMob
+    default: op
+  cmdmobs.modify:
+    description: Allows the player to use the Customizer on CommandMobs
+    default: op
+  cmdmobs.mob-use:
+    description: Can restrict use of certain CommandMobs to certain players
+    default: true
+  cmdmobs.customizer.self:
+    description: Allows the player to give themself a Customizer
+    default: op
+  cmdmobs.customizer.other:
+    description: Allows the player to give others a Customizer
+    default: op

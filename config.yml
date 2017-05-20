@@ -1,0 +1,33 @@
+settings:
+  defaults:
+    name: '&b&lCommandMob'
+    name-displays: true
+    movement: false
+    price: 0
+    killable: false
+    mob-type: villager
+  mobs:
+    name-width: 16
+    scroll-speed: 10
+    scroll-length: 10
+    hypolength-spaces: true
+    death:
+      remove: true
+      exp: true
+      drops: false
+  customizer: stick
+  customizer-on-create: true
+  use-price: true
+  enchantment-id: 150
+  announce-dev-join: true
+messages:
+  no-perms: '&cYou do not have permission to use that command!'
+  not-enough-money: '&cYou do not have enough money! You need &4%s&c more dollars!'
+permissions:
+  creator-modify: true
+  create: create
+  modify: modify.%d
+  mob-use: use.%d
+  customizer:
+    self: customizer
+    other: customizer.other

@@ -1,975 +1,551 @@
 package me.zonalyewhd.commandmobs;
 
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.logging.Logger;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Material;
-import org.bukkit.OfflinePlayer;
-import org.bukkit.Sound;
-import org.bukkit.command.Command;
-import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.craftbukkit.v1_11_R1.inventory.CraftItemStack;
-import org.bukkit.enchantments.Enchantment;
+import org.bukkit.DyeColor;
+import org.bukkit.World;
+import org.bukkit.entity.Ageable;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Horse;
+import org.bukkit.entity.Horse.Style;
 import org.bukkit.entity.LivingEntity;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.inventory.ClickType;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
-import org.bukkit.event.player.PlayerInteractEntityEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.inventory.EquipmentSlot;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.entity.Ocelot;
+import org.bukkit.entity.Ocelot.Type;
+import org.bukkit.entity.Sheep;
+import org.bukkit.entity.Villager;
+import org.bukkit.entity.Villager.Profession;
 import org.bukkit.metadata.FixedMetadataValue;
-import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.RegisteredServiceProvider;
-import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import net.milkbowl.vault.economy.Economy;
-import net.minecraft.server.v1_11_R1.NBTTagCompound;
+@SuppressWarnings({ "deprecation", "unchecked" })
+public class Mob {
 
-@SuppressWarnings("deprecation")
-public class CommandMobs extends JavaPlugin implements Listener {
+	public static final int MAX_COMMANDS = 36;
+	public static final int MAX_MESSAGES = 36;
 
-	public static final Logger LOGGER = Logger.getLogger("Minecraft");
+	public static final Set<String> VALID_MOB_TYPES = ImmutableSet
+			.copyOf(Arrays.asList("BAT", "CHICKEN", "COW", "DONKEY", "HORSE", "MULE", "MUSHROOM_COW", "OCELOT", "PIG",
+					"SHEEP", "SKELETON_HORSE", "VILLAGER", "ZOMBIE_HORSE"));
 
-	private static CommandMobs inst;
+	protected static Map<UUID, Mob> MOBS = Maps.newHashMap();
+	protected static List<Mob> SCROLLING_MOBS = Lists.newArrayList();
 
-	public static final String CURRENT_VERSION = "2.1.0";
-	public static final String PREFIX = "§e§l[§2§lCommandMobs§e§l]§r ";
+	private static String defaultName = CommandMobs.config().getString("settings.defaults.name");
+	private static boolean defaultNameDisplays = CommandMobs.config().getBoolean("settings.defaults.name-displays");
+	private static boolean defaultMovement = CommandMobs.config().getBoolean("settings.defaults.movement");
+	private static int defaultPrice = CommandMobs.config().getInt("settings.defaults.price");
+	private static boolean defaultKillable = CommandMobs.config().getBoolean("settings.defaults.killable");
 
-	// Player ID, Mob
-	public HashMap<UUID, Mob> RENAMING = Maps.newHashMap();
-	// Player ID, Mob
-	public HashMap<UUID, Mob> COMMANDS = Maps.newHashMap();
-	// Player ID, Old Command
-	public HashMap<UUID, String> OLD_CMD = Maps.newHashMap();
-	// Player ID, Mob
-	public HashMap<UUID, Mob> MESSAGES = Maps.newHashMap();
-	// Player ID, Old Message
-	public HashMap<UUID, String> OLD_MSG = Maps.newHashMap();
+	private UUID id;
+	private Map<String, Object> properties;
 
-	public Economy econ = null;
-	public boolean priceEnabled;
+	private Mob(UUID id, UUID registrar) {
+		this.id = id;
 
-	public static ItemStack SELECTOR;
+		MOBS.put(id, this);
 
-	public String noPerms;
+		LivingEntity ent = a(id);
 
-	public EntityType def;
-
-	protected static Map<UUID, Inventory[]> menus = Maps.newLinkedHashMap();
-
-	private boolean setupEconomy() {
-		if (getServer().getPluginManager().getPlugin("Vault") == null) {
-			LOGGER.severe("Can not find Vault plugin!");
-			return false;
+		properties = new HashMap<String, Object>();
+		properties.put("REGISTRAR", registrar);
+		properties.put("COMMANDS", e("say Hello! I am a CommandMob executing a command for %n!"));
+		properties.put("MESSAGES", e("&bI am a CommandMob!"));
+		properties.put("TYPE", ent.getType());
+		properties.put("CUSTOMS", new HashMap<String, Object>());
+		((Map<String, Object>) properties.get("CUSTOMS")).put("BABY", false);
+		setDisplayName(defaultName);
+		setNameDisplays(defaultNameDisplays);
+		setPrice(defaultPrice);
+		setCanMove(defaultMovement);
+		setKillable(defaultKillable);
+		// TODO customizations
+		if (ent.getType().equals(EntityType.VILLAGER))
+			setProfession(Profession.FARMER);
+		if (ent.getType().equals(EntityType.SHEEP))
+			setWoolColor(DyeColor.WHITE);
+		if (ent.getType().equals(EntityType.OCELOT))
+			setCatType(Type.WILD_OCELOT);
+		if (ent.getType().equals(EntityType.HORSE)) {
+			setHorseColor(Horse.Color.BROWN);
+			setHorseStyle(Horse.Style.NONE);
 		}
-		RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
-		if (rsp == null) {
-			LOGGER.severe("Can not find RSP!");
-			return false;
-		}
-		econ = rsp.getProvider();
-		return econ != null;
 	}
 
-	public void onEnable() {
-		saveDefaultConfig();
+	private Mob(UUID id, UUID registrar, String displayName, int price, ArrayList<String> commands,
+			ArrayList<String> messages, boolean canMove, boolean killable, boolean nameDisplays, boolean scrolls,
+			Map<String, Object> customs) {
+		this.id = id;
+		properties = new HashMap<String, Object>();
+		properties.put("REGISTRAR", registrar);
+		if (scrolls)
+			properties.put("SCROLL",
+					new Scroller(b(displayName), CommandMobs.config().getInt("settings.mobs.scroll-length"),
+							(int) Math.ceil(.25 * CommandMobs.config().getInt("settings.mobs.scroll-length")), '&'));
+		if (scrolls)
+			SCROLLING_MOBS.add(this);
+		properties.put("COMMANDS", commands);
+		properties.put("MESSAGES", messages);
+		properties.put("TYPE", ((LivingEntity) a(id)).getType());
+		properties.put("CUSTOMS", customs);
+		setDisplayName(displayName);
+		setPrice(price);
+		setCanMove(canMove);
+		setKillable(killable);
+		setNameDisplays(nameDisplays);
 
-		inst = this;
+		MOBS.put(id, this);
+	}
 
-		priceEnabled = getConfig().getBoolean("settings.use-price");
-
-		if ((!setupEconomy()) && (priceEnabled)) {
-			LOGGER.severe("Vault is not currently installed on this server! "
-					+ "Install Vault, or disable the price feature in the config!");
-			Bukkit.getPluginManager().disablePlugin(this);
-			return;
+	public static Mob getMob(UUID uuid) {
+		if (MOBS.containsKey(uuid)) {
+			return MOBS.get(uuid);
+		} else if (uuid == null) {
+			return null;
+		} else if (a(uuid) == null) {
+			return null;
+		} else if (CommandMobs.config()
+				.contains("mobs." + a(uuid).getType().getName().toLowerCase() + "." + uuid.toString())) {
+			return load(a(uuid));
 		}
+		return null;
+	}
 
-		getCommand("commandmobs").setExecutor(this);
-		Bukkit.getPluginManager().registerEvents(this, this);
+	public static boolean isMob(UUID uuid) {
+		for (UUID mob : MOBS.keySet())
+			if (mob == uuid)
+				return true;
+		return false;
+	}
 
-		try {
-			EnchantmentManager.setup();
-		} catch (Exception e) {
-			if (!(Enchantment.getByName("Glow") != null && Enchantment.getByName("Glow").getId() == 150)) {
-				LOGGER.severe("Cannot register fake enchantment! Change the enchantment ID in the config!");
-				LOGGER.severe("Disabling CommandMobs...");
-				Bukkit.getPluginManager().disablePlugin(this);
-				return;
+	public static EntityType getEntityType(String name) {
+		return EntityType.valueOf(name.toUpperCase().replace(' ', '_'));
+	}
+
+	private static LivingEntity a(UUID id) {
+		for (World w : Bukkit.getWorlds())
+			for (Entity e : w.getEntities()) {
+				if ((e.getUniqueId() == id))
+					return (LivingEntity) e;
+			}
+		return null;
+	}
+
+	private static String b(String displayName) {
+		int k = -1;
+		char[] a = displayName.toCharArray();
+		for (int i = 0; i < a.length; i++) {
+			if (a[i] == '%' && a[i + 1] == 's') {
+				k = i + 2;
 			}
 		}
-
-		Mob.loadAll();
-
-		try {
-			SELECTOR = new ItemStack(Material.valueOf(getConfig().getString("settings.customizer").toUpperCase()));
-			ItemMeta im = SELECTOR.getItemMeta();
-			im.setDisplayName("§1§lMob Customizer");
-			SELECTOR.setItemMeta(im);
-		} catch (Exception e) {
-			LOGGER.severe("Invalid item type for customizer: " + getConfig().getString("settings.customizer"));
-			for (OfflinePlayer p : Bukkit.getOperators()) {
-				if (p.isOnline()) {
-					((Player) p).sendMessage(PREFIX + "§rAn error occurred while enabling CommandMobs."
-							+ " Please consult the console for a full diagnostic.");
-				}
-			}
-			Bukkit.getPluginManager().disablePlugin(this);
-			return;
-		}
-
-		try {
-			def = EntityType.fromName(getConfig().getString("settings.defaults.mob-type").replace(' ', '_'));
-		} catch (Exception e) {
-			LOGGER.severe("Invalid default mob type: " + getConfig().getString("settings.default.mob-type"));
-			for (OfflinePlayer p : Bukkit.getOperators())
-				if (p.isOnline())
-					((Player) p).sendMessage(PREFIX + "§rAn error occurred while enabling CommandMobs."
-							+ " Please consult the console for a full diagnostic.");
-			Bukkit.getPluginManager().disablePlugin(this);
-			return;
-		}
-
-		try {
-			Metrics metrics = new Metrics(this);
-			metrics.start();
-		} catch (IOException e) {
-			LOGGER.severe("Could not start Metrics!");
-			e.printStackTrace();
-		}
-
-		if (getConfig().getDouble("settings.mobs.scroll-speed") <= 0) {
-			LOGGER.severe("Invalid scrolling speed: " + getConfig().getString("settings.mobs.scroll-speed")
-					+ "\nMust be greater than zero.");
-			Bukkit.getPluginManager().disablePlugin(this);
-		}
-
-		Bukkit.getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
-
-			public void run() {
-				for (Mob mob : Mob.SCROLLING_MOBS) {
-					mob.setName(Mob.c(mob.getDisplayName()) + mob.getScroller().next());
-				}
-			}
-
-		}, 0, getConfig().getInt("settings.mobs.scroll-speed"));
-
-		noPerms = ChatColor.translateAlternateColorCodes('&', getConfig().getString("messages.no-perms"));
-
-		LOGGER.info("CommandMobs v" + CURRENT_VERSION + " enabled successfully!");
+		return displayName.substring(k);
 	}
 
-	public void onDisable() {
-		for (Mob mob : Mob.MOBS.values()) {
-			mob.serialize();
-		}
-
-		LOGGER.info("CommandMobs v" + CURRENT_VERSION + " disabled successfully!");
-	}
-
-	@EventHandler
-	public void onPlayerChat(AsyncPlayerChatEvent e) {
-		if (RENAMING.containsKey(e.getPlayer().getUniqueId())) {
-			e.setCancelled(true);
-			if (!e.getMessage().equals("CANCEL") && !e.getMessage().equals("%x"))
-				RENAMING.get(e.getPlayer().getUniqueId()).setDisplayName(e.getMessage());
-			else if (e.getMessage().equals("%x"))
-				RENAMING.get(e.getPlayer().getUniqueId()).setDisplayName(null);
-			e.getPlayer().openInventory(menus.get(RENAMING.get(e.getPlayer().getUniqueId()).getUUID())[0]);
-			RENAMING.remove(e.getPlayer().getUniqueId());
-			return;
-		} else if (COMMANDS.containsKey(e.getPlayer().getUniqueId())) {
-			e.setCancelled(true);
-			if (OLD_CMD.containsKey(e.getPlayer().getUniqueId())) {
-				if (!e.getMessage().equals("CANCEL"))
-					COMMANDS.get(e.getPlayer().getUniqueId()).getCommands().add(e.getMessage());
-				else
-					COMMANDS.get(e.getPlayer().getUniqueId()).getCommands()
-							.add(OLD_CMD.get(e.getPlayer().getUniqueId()));
-				e.getPlayer()
-						.openInventory(commandsMenu(COMMANDS.get(e.getPlayer().getUniqueId()), e.getPlayer(), true));
-				return;
-			} else {
-				if (!e.getMessage().equals("CANCEL"))
-					COMMANDS.get(e.getPlayer().getUniqueId()).getCommands().add(e.getMessage());
-				e.getPlayer()
-						.openInventory(commandsMenu(COMMANDS.get(e.getPlayer().getUniqueId()), e.getPlayer(), true));
-				COMMANDS.remove(e.getPlayer().getUniqueId());
-				return;
-			}
-		} else if (MESSAGES.containsKey(e.getPlayer().getUniqueId())) {
-			e.setCancelled(true);
-			if (OLD_MSG.containsKey(e.getPlayer().getUniqueId())) {
-				if (!e.getMessage().equals("CANCEL"))
-					MESSAGES.get(e.getPlayer().getUniqueId()).getMessages().add(e.getMessage());
-				else
-					MESSAGES.get(e.getPlayer().getUniqueId()).getMessages()
-							.add(OLD_MSG.get(e.getPlayer().getUniqueId()));
-				e.getPlayer()
-						.openInventory(messagesMenu(MESSAGES.get(e.getPlayer().getUniqueId()), e.getPlayer(), true));
-				MESSAGES.remove(e.getPlayer().getUniqueId());
-				return;
-			} else {
-				if (!e.getMessage().equals("CANCEL"))
-					MESSAGES.get(e.getPlayer().getUniqueId()).getMessages().add(e.getMessage());
-				e.getPlayer()
-						.openInventory(messagesMenu(MESSAGES.get(e.getPlayer().getUniqueId()), e.getPlayer(), true));
-				MESSAGES.remove(e.getPlayer().getUniqueId());
-				return;
+	protected static String c(String displayName) {
+		int k = -1;
+		char[] a = displayName.toCharArray();
+		for (int i = 0; i < a.length; i++) {
+			if (a[i] == '%' && a[i + 1] == 's') {
+				k = i;
 			}
 		}
+		return displayName.substring(0, k);
 	}
 
-	@EventHandler
-	public void onPlayerJoin(PlayerJoinEvent e) {
-		if (getConfig().getBoolean("settings.announce-dev-join")
-				&& e.getPlayer().getUniqueId().toString().equals("20f2017a-566d-4109-b937-ba03c7cd7041")) {
-			Bukkit.broadcastMessage(PREFIX + "§6The developer, §c"
-					+ NameFetcher.singleName(UUID.fromString("20f2017a-566d-4109-b937-ba03c7cd7041"), "ZonalYewHD")
-					+ "§6, has joined the game!");
-		}
-		e.getPlayer().setCollidable(false);
-	}
+	private static ArrayList<String> d(List<String> list) {
+		ArrayList<String> a = new ArrayList<String>();
 
-	@EventHandler
-	public void onPlayerDisconnect(PlayerQuitEvent e) {
-		RENAMING.remove(e.getPlayer().getUniqueId());
-		COMMANDS.get(e.getPlayer().getUniqueId()).getCommands().add(OLD_CMD.get(e.getPlayer().getUniqueId()));
-		COMMANDS.remove(e.getPlayer().getUniqueId());
-		MESSAGES.get(e.getPlayer().getUniqueId()).getMessages().add(OLD_MSG.get(e.getPlayer().getUniqueId()));
-		MESSAGES.remove(e.getPlayer().getUniqueId());
-		OLD_CMD.remove(e.getPlayer().getUniqueId());
-		OLD_MSG.remove(e.getPlayer().getUniqueId());
-	}
+		a.addAll(list);
 
-	@EventHandler
-	public void onEntityDamage(EntityDamageEvent e) {
-		if (Mob.isMob(e.getEntity().getUniqueId()) && !Mob.getMob(e.getEntity().getUniqueId()).killable())
-			e.setCancelled(true);
-	}
-
-	@EventHandler
-	public void onEntityDeath(EntityDeathEvent e) {
-		if (Mob.isMob(e.getEntity().getUniqueId())) {
-			if (getConfig().getBoolean("settings.mobs.death.remove")) {
-				if (!getConfig().getBoolean("settings.mobs.death.exp"))
-					e.setDroppedExp(0);
-				if (!getConfig().getBoolean("settings.mobs.death.drops"))
-					e.getDrops().clear();
-				if (Bukkit.getPlayer(Mob.getMob(e.getEntity().getUniqueId()).getRegistrar()) != null) {
-					sendMessage(Bukkit.getPlayer(Mob.getMob(e.getEntity().getUniqueId()).getRegistrar()),
-							"§4Your CommandMob has died!");
-				}
-				Mob.getMob(e.getEntity().getUniqueId()).remove(true);
-			}
-		}
-	}
-
-	@EventHandler(ignoreCancelled = true, priority = EventPriority.NORMAL)
-	public void onCustomizerClick(InventoryClickEvent e) {
-		if (e.getCurrentItem() != null && e.getCurrentItem().getType() != null) {
-			if (e.getInventory().getTitle().equalsIgnoreCase("§1§lCustomizer")) {
-				if (e.getInventory().getItem(0) != null) {
-					if (e.getInventory().getItem(0).getType() == Material.BOOK) {
-						e.setCancelled(true);
-						Player p = (Player) e.getWhoClicked();
-						Mob mob = Mob.getMob(UUID.fromString(p.getMetadata("CUSTOMIZING").get(0).asString()));
-						if (e.getCurrentItem().getType() == Material.BOOK) {
-							if (e.getClick() == ClickType.SHIFT_LEFT) {
-								e.getCurrentItem().setAmount(0);
-								p.updateInventory();
-								sendMessage(p,
-										"§4You have removed the "
-												+ mob.getEntity().getType().getName().toLowerCase().replace('_', ' ')
-												+ " CommandMob.");
-								p.closeInventory();
-								mob.remove(true);
-							} else {
-								p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-							}
-						} else if (e.getCurrentItem().getType() == Material.NAME_TAG) {
-							if (e.getClick() == ClickType.LEFT) {
-								p.closeInventory();
-								sendMessage(p, "§6Please type the new name of the mob. Type §cCANCEL§6 to cancel.");
-								RENAMING.put(p.getUniqueId(), mob);
-							}
-						} else if (e.getCurrentItem().getType() == Material.DIODE) {
-							p.closeInventory();
-							p.openInventory(commandsMenu(mob, p, false));
-							COMMANDS.put(p.getUniqueId(), mob);
-						} else if (e.getCurrentItem().getType() == Material.BOOK_AND_QUILL) {
-							p.closeInventory();
-							p.openInventory(messagesMenu(mob, p, false));
-							MESSAGES.put(p.getUniqueId(), mob);
-						} else if (e.getCurrentItem().getType() == Material.INK_SACK) {
-							e.getCurrentItem().setDurability((short) (mob.killable() ? 10 : 8));
-							ItemMeta meta = e.getCurrentItem().getItemMeta();
-							meta.setDisplayName(mob.killable() ? "§aNot Killable" : "§cKillable");
-							e.getCurrentItem().setItemMeta(meta);
-							mob.setKillable(!mob.killable());
-						} else if (e.getCurrentItem().getType() == Material.DIAMOND) {
-							ItemMeta meta = e.getCurrentItem().getItemMeta();
-							int price = mob.getPrice();
-							if (e.getClick() == ClickType.LEFT)
-								price += 1;
-							else if (e.getClick() == ClickType.SHIFT_LEFT)
-								price += 5;
-							else if (e.getClick() == ClickType.DROP)
-								price += 25;
-							else if (e.getClick() == ClickType.DOUBLE_CLICK)
-								price += 998;
-							else if (e.getClick() == ClickType.RIGHT)
-								price -= 1;
-							else if (e.getClick() == ClickType.SHIFT_RIGHT)
-								price -= 5;
-							else if (e.getClick() == ClickType.CONTROL_DROP)
-								price -= 25;
-							else if (e.getClick() == ClickType.NUMBER_KEY)
-								price -= 1000;
-							else if (e.getClick() == ClickType.MIDDLE)
-								price = 0;
-							else
-								p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-							mob.setPrice(price);
-							meta.setDisplayName("§bPrice: §3" + mob.getPrice());
-							e.getCurrentItem().setItemMeta(meta);
-						} else if (e.getCurrentItem().getType() == Material.PAPER) {
-							p.closeInventory();
-							p.openInventory(menus.get(mob.getUUID())[1]);
-						}
-					} else if (e.getInventory().getItem(0).getType() == Material.PAPER) {
-						e.setCancelled(true);
-						Player p = (Player) e.getWhoClicked();
-						Mob mob = Mob
-								.getMob(UUID
-										.fromString(ChatColor
-												.stripColor(e.getInventory().getContents()[e.getInventory()
-														.first(Material.BOOK)].getItemMeta().getLore().get(1))
-												.replaceAll("  UUID: ", "")));
-						if (e.getCurrentItem().getType() == Material.PAPER) {
-							p.closeInventory();
-							p.openInventory(menus.get(mob.getUUID())[0]);
-						} else if (e.getCurrentItem().getType() == Material.INK_SACK) {
-							e.getCurrentItem().setDurability((short) (mob.canMove() ? 8 : 10));
-							ItemMeta meta = e.getCurrentItem().getItemMeta();
-							meta.setDisplayName(mob.canMove() ? "§cCannot Move" : "§aCan Move");
-							mob.setCanMove(!mob.canMove());
-							e.getCurrentItem().setItemMeta(meta);
-						} else if (e.getCurrentItem().getType() == Material.MONSTER_EGG) {
-							p.closeInventory();
-							p.openInventory(mobTypeMenu(mob, p));
-						} else if (e.getCurrentItem().getType() == Material.REDSTONE_BLOCK) {
-							p.closeInventory();
-							RENAMING.remove(p.getUniqueId());
-							COMMANDS.remove(p.getUniqueId());
-							MESSAGES.remove(p.getUniqueId());
-						} else if (e.getCurrentItem().getType() == Material.BOOK) {
-							if (e.getClick() == ClickType.SHIFT_LEFT) {
-								p.closeInventory();
-								sendMessage(p,
-										"§4You have removed a "
-												+ mob.getEntity().getType().getName().toLowerCase().replace('_', ' ')
-												+ " CommandMob.");
-								mob.remove(true);
-							} else
-								p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-						}
-					}
-				}
-			} else if (e.getInventory().getTitle().equalsIgnoreCase("§c§lCommands")) {
-				e.setCancelled(true);
-				Player p = (Player) e.getWhoClicked();
-				Mob mob = Mob.getMob(UUID.fromString(p.getMetadata("CUSTOMIZING").get(0).asString()));
-				if (e.getCurrentItem() != null) {
-					if (e.getCurrentItem().getType() == Material.EMPTY_MAP) {
-						if (e.getClick() == ClickType.LEFT) {
-							OLD_CMD.put(p.getUniqueId(), mob.getCommands().get(e.getRawSlot()));
-							COMMANDS.put(p.getUniqueId(), mob);
-							p.closeInventory();
-							sendMessage(p, "§aThe old message was §2" + mob.getCommands().get(e.getRawSlot())
-									+ "§a. Please enter a new message now.");
-							mob.getCommands().remove(e.getRawSlot());
-						} else if (e.getClick() == ClickType.RIGHT) {
-							mob.getCommands().remove(e.getRawSlot());
-							p.closeInventory();
-							p.openInventory(commandsMenu(mob, p, false));
-						} else
-							p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-					} else if (e.getCurrentItem().getType() == Material.ENCHANTED_BOOK)
-						p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-					else if (e.getCurrentItem().getType() == Material.EMERALD_BLOCK) {
-						if (mob.getCommands().size() == 36) {
-							p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-							return;
-						}
-						COMMANDS.put(p.getUniqueId(), mob);
-						p.closeInventory();
-						sendMessage(p, "§aEnter a new command into chat. Do §2not§a type the slash.");
-					} else if (e.getCurrentItem().getType() == Material.REDSTONE_BLOCK) {
-						p.closeInventory();
-						p.openInventory(menus.get(mob.getUUID())[0]);
-						COMMANDS.remove(p.getUniqueId());
-					}
-				}
-			} else if (e.getInventory().getTitle().equalsIgnoreCase("§9§lMessages")) {
-				e.setCancelled(true);
-				Player p = (Player) e.getWhoClicked();
-				Mob mob = Mob.getMob(UUID.fromString(p.getMetadata("CUSTOMIZING").get(0).asString()));
-				if (e.getCurrentItem() != null) {
-					if (e.getCurrentItem().getType() == Material.EMPTY_MAP) {
-						if (e.getClick() == ClickType.LEFT) {
-							OLD_MSG.put(p.getUniqueId(), mob.getMessages().get(e.getRawSlot()));
-							MESSAGES.put(p.getUniqueId(), mob);
-							p.closeInventory();
-							sendMessage(p, "§aThe old message was §2" + mob.getMessages().get(e.getRawSlot())
-									+ "§a. Please enter a new message now.");
-							mob.getMessages().remove(e.getRawSlot());
-						} else if (e.getClick() == ClickType.RIGHT) {
-							mob.getMessages().remove(e.getRawSlot());
-							p.closeInventory();
-							p.openInventory(messagesMenu(mob, p, false));
-						} else
-							p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-					} else if (e.getCurrentItem().getType() == Material.ENCHANTED_BOOK)
-						p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-					else if (e.getCurrentItem().getType() == Material.EMERALD_BLOCK) {
-						if (mob.getMessages().size() == 36) {
-							p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
-							return;
-						}
-						MESSAGES.put(p.getUniqueId(), mob);
-						p.closeInventory();
-						sendMessage(p, "§aEnter a new message into chat.");
-					} else if (e.getCurrentItem().getType() == Material.REDSTONE_BLOCK) {
-						p.closeInventory();
-						p.openInventory(menus.get(mob.getUUID())[0]);
-						MESSAGES.remove(p.getUniqueId());
-					}
-				}
-			} else if (e.getInventory().getTitle().equalsIgnoreCase("§d§lMob Type")) {
-				e.setCancelled(true);
-				Player p = (Player) e.getWhoClicked();
-				Mob mob = Mob.getMob(UUID.fromString(p.getMetadata("CUSTOMIZING").get(0).asString()));
-				p.closeInventory();
-				if (e.getCurrentItem().getType().equals(Material.REDSTONE_BLOCK)) {
-					p.openInventory(menus.get(mob.getUUID())[1]);
-					return;
-				}
-				mob.setEntityType(
-						EntityType.valueOf(ChatColor.stripColor(e.getCurrentItem().getItemMeta().getDisplayName())
-								.toUpperCase().replace(' ', '_')));
-				p.openInventory(mobTypeMenu(mob, p));
-			}
-		}
-	}
-
-	@EventHandler(ignoreCancelled = true, priority = EventPriority.HIGH)
-	public void onMobClick(PlayerInteractEntityEvent e) {
-		if (e.getHand().equals(EquipmentSlot.HAND))
-			if (getConfig().contains("mobs." + e.getRightClicked().getType().getName().toLowerCase() + "."
-					+ e.getRightClicked().getUniqueId().toString())) {
-				e.setCancelled(true);
-				Mob mob = Mob.getMob(e.getRightClicked().getUniqueId());
-				if (e.getPlayer().getItemInHand() != null && e.getPlayer().getItemInHand().isSimilar(SELECTOR)) {
-					if (((mob.getRegistrar() == e.getPlayer().getUniqueId())
-							&& (getConfig().getBoolean("permissions.creator-modify")))
-							|| (e.getPlayer().hasPermission("cmdmobs." + getConfig().getString("permissions.modify")
-									.replaceAll("%d", e.getRightClicked().getUniqueId().toString())))) {
-						if (menus.containsKey(e.getRightClicked().getUniqueId())) {
-							e.getPlayer().closeInventory();
-							e.getPlayer().openInventory(menus.get(e.getRightClicked().getUniqueId())[0]);
-							e.getPlayer().setMetadata("CUSTOMIZING",
-									new FixedMetadataValue(this, e.getRightClicked().getUniqueId().toString()));
-						} else {
-							menus.put(e.getRightClicked().getUniqueId(), createMenus(mob));
-
-							e.getPlayer().closeInventory();
-							e.getPlayer().openInventory(menus.get(e.getRightClicked().getUniqueId())[0]);
-
-							e.getPlayer().setMetadata("CUSTOMIZING",
-									new FixedMetadataValue(this, e.getRightClicked().getUniqueId().toString()));
-						}
-					} else {
-						sendMessage(e.getPlayer(), noPerms);
-					}
-					return;
-				} else {
-					if (e.getPlayer().hasPermission("cmdmobs." + getConfig().getString("permissions.mob-use")
-							.replaceAll("%d", mob.getUUID().toString()))) {
-						if (priceEnabled) {
-							if (econ.has(e.getPlayer(), mob.getPrice())) {
-								econ.withdrawPlayer(e.getPlayer(), mob.getPrice());
-							} else {
-								sendMessage(e.getPlayer(),
-										getConfig().getString("messages.not-enough-money")
-												.replace("%s",
-														String.valueOf((int) (mob.getPrice()
-																- econ.getBalance(e.getPlayer()))))
-												.replace("%p", String.valueOf(mob.getPrice())));
-								return;
-							}
-
-						}
-						for (String cmd : mob.getCommands()) {
-							if (cmd.startsWith("c:")) {
-								Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
-										cmd.substring(2).replaceAll("%n", e.getPlayer().getName())
-												.replaceAll("%b", String.valueOf(econ.getBalance(e.getPlayer())))
-												.replaceAll("%p", String.valueOf(mob.getPrice())));
-							} else {
-								e.getPlayer()
-										.performCommand(cmd.replaceAll("%n", e.getPlayer().getName())
-												.replaceAll("%b", String.valueOf(econ.getBalance(e.getPlayer())))
-												.replaceAll("%p", String.valueOf(mob.getPrice())));
-							}
-						}
-						for (String msg : mob.getMessages()) {
-							e.getPlayer().sendMessage(ChatColor.translateAlternateColorCodes('&',
-									msg.replaceAll("%n", e.getPlayer().getName())
-											.replaceAll("%b", String.valueOf(econ.getBalance(e.getPlayer())))
-											.replaceAll("%p", String.valueOf(mob.getPrice()))));
-						}
-					} else {
-						sendMessage(e.getPlayer(), noPerms);
-						return;
-					}
-				}
-			}
-	}
-	
-	protected static Inventory[] createMenus(Mob mob) {
-		Inventory[] a = new Inventory[2];
-
-		Inventory menu = Bukkit.createInventory(null, 9, "§1§lCustomizer");
-
-		// "Info" Book
-		ItemStack item = new ItemStack(Material.BOOK);
-		ItemMeta meta = item.getItemMeta();
-		meta.setDisplayName("§eInfo");
-		meta.setLore(Arrays.asList("", "  §6UUID: §c" + mob.getUUID().toString(),
-				"  §6Creator: §c" + mob.getRegistrarName(), "",
-				"§8Shift left click to remove this mob"));
-		item.setItemMeta(meta);
-		item.addEnchantment(EnchantmentManager.getBlankEnchantment(), 1);
-
-		menu.setItem(0, item);
-
-		// "Rename" Name Tag
-		item = new ItemStack(Material.NAME_TAG);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§aRename");
-		meta.setLore(Arrays.asList("§8Left click to rename"));
-		item.setItemMeta(meta);
-
-		menu.setItem(2, item);
-
-		// "Commands" Redstone Repeater
-		item = new ItemStack(Material.DIODE);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§cCommands");
-		meta.setLore(Arrays.asList("§8Click to modify and view"));
-		item.setItemMeta(meta);
-
-		menu.setItem(3, item);
-
-		// "Messages" Book and Quill
-		item = new ItemStack(Material.BOOK_AND_QUILL);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§9Messages");
-		meta.setLore(Arrays.asList("§8Click to modify and view"));
-		item.setItemMeta(meta);
-
-		menu.setItem(4, item);
-
-		// "Killablility" Dye
-		item = new ItemStack(Material.INK_SACK, 1, (short) (mob.killable() ? 8 : 10));
-		meta = item.getItemMeta();
-		meta.setDisplayName("§" + (mob.killable() ? "c" : "aNot ") + "Killable");
-		meta.setLore(Arrays.asList("§8Click to change"));
-		item.setItemMeta(meta);
-
-		menu.setItem(5, item);
-
-		// "Price" Diamond
-		item = new ItemStack(Material.DIAMOND);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§bPrice: §3" + mob.getPrice());
-		meta.setLore(Arrays.asList("", "  §a+1 §8→ §7Left Click", "  §a+5 §8→ §7Shift Left Click",
-				"  §a+25 §8→ §7Drop", "  §a+1,000 §8→ §7Double Click", "  §c-1 §8→ §7Right Click",
-				"  §c-5 §8→ §7Shift Right Click", "  §c-25 §8→ §7Control Drop Click",
-				"  §c-1,000 §8→ §7Number Keys (1-9)", "  §4Reset §8→ §7Select Block"));
-		item.setItemMeta(meta);
-
-		menu.setItem(6, item);
-
-		// "Next Page" Paper
-		item = new ItemStack(Material.PAPER);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§7Next Page");
-		item.setItemMeta(meta);
-
-		menu.setItem(8, item);
-
-		a[0] = menu;
-
-		menu = Bukkit.createInventory(null, 9, "§1§lCustomizer");
-
-		// "Previous Page" Paper
-		item = new ItemStack(Material.PAPER);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§7Previous Page");
-		item.setItemMeta(meta);
-
-		menu.setItem(0, item);
-
-		// "Movement" Dye
-		item = new ItemStack(Material.INK_SACK, 1, (short) (mob.canMove() ? 10 : 8));
-		meta = item.getItemMeta();
-		meta.setDisplayName("§" + (mob.canMove() ? "aCan Move" : "cCannot Move"));
-		meta.setLore(Arrays.asList("§8Click to change"));
-		item.setItemMeta(meta);
-
-		menu.setItem(2, item);
-
-		// TODO Change Mob Type
-		item = new ItemStack(Material.MONSTER_EGG);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§dMob Type");
-		item.setItemMeta(meta);
-
-		menu.setItem(3, item);
-
-		// "Close" Redstone Block
-		item = new ItemStack(Material.REDSTONE_BLOCK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§4§lClose");
-		item.setItemMeta(meta);
-
-		menu.setItem(6, item);
-
-		// "Info" Book
-		item = new ItemStack(Material.BOOK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§eInfo");
-		meta.setLore(Arrays.asList("", "  §6UUID: §c" + mob.getUUID().toString(),
-				"  §6Creator: §c" + mob.getRegistrarName(), "",
-				"§8Shift left-click to remove this mob"));
-		item.setItemMeta(meta);
-		item.addEnchantment(EnchantmentManager.getBlankEnchantment(), 1);
-
-		menu.setItem(8, item);
-
-		a[1] = menu;
-		
 		return a;
 	}
 
-	private Inventory commandsMenu(Mob mob, Player player, boolean remove) {
-		Inventory i = Bukkit.createInventory(null,
-				((mob.getCommands().size() <= 9) ? 27
-						: (mob.getCommands().size() <= 18) ? 36
-								: (mob.getCommands().size() <= 27) ? 45 : (mob.getCommands().size() <= 36) ? 54 : -1),
-				"§c§lCommands");
-
-		ItemStack item;
-		ItemMeta meta;
-
-		// "Back" Redstone Block
-		item = new ItemStack(Material.REDSTONE_BLOCK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§4§lBack");
-		item.setItemMeta(meta);
-
-		i.setItem(i.getSize() - 6, item);
-
-		// "Help Book" Enchanted Book
-		item = new ItemStack(Material.ENCHANTED_BOOK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§eHelp Book");
-		meta.setLore(
-				Arrays.asList("", "  §aLeft click§8 a command to edit it", "  §aRight click§8 a command to remove it",
-						"  §aLeft click§8 \"§aNew Command§8\" to add an additional command.",
-						"  §3Available Variables:", "    §e%n§7 - the player's name",
-						"    §e%b§7 - the player's balance", "    §e%p§7 - the price of the mob"));
-		item.setItemMeta(meta);
-
-		i.setItem(i.getSize() - 5, item);
-
-		// "New Command" Emerald Block
-		item = new ItemStack(Material.EMERALD_BLOCK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§aNew Command");
-		item.setItemMeta(meta);
-
-		i.setItem(i.getSize() - 4, item);
-
-		// "Command"s Empty Map
-		for (int k = 0; k < mob.getCommands().size(); k++) {
-			item = new ItemStack(Material.EMPTY_MAP, k + 1);
-			meta = item.getItemMeta();
-			meta.setDisplayName("§cCommand");
-			meta.setLore(Arrays.asList("§bCurrent Command:", "  §3" + mob.getCommands().get(k)));
-			item.setItemMeta(meta);
-
-			i.setItem(k, item);
-		}
-
-		if (remove)
-			COMMANDS.remove(player.getUniqueId());
-
-		return i;
+	private static ArrayList<String> e(String... strings) {
+		ArrayList<String> a = new ArrayList<String>(strings.length);
+		for (String s : strings)
+			a.add(s);
+		return a;
 	}
 
-	private Inventory messagesMenu(Mob mob, Player player, boolean remove) {
-		Inventory i = Bukkit.createInventory(null,
-				((mob.getMessages().size() <= 9) ? 27
-						: (mob.getMessages().size() <= 18) ? 36
-								: (mob.getMessages().size() <= 27) ? 45 : (mob.getMessages().size() <= 36) ? 54 : -1),
-				"§9§lMessages");
-
-		ItemStack item;
-		ItemMeta meta;
-
-		// "Back" Redstone Block
-		item = new ItemStack(Material.REDSTONE_BLOCK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§4§lBack");
-		item.setItemMeta(meta);
-
-		i.setItem(i.getSize() - 6, item);
-
-		// "Help Book" Enchanted Book
-		item = new ItemStack(Material.ENCHANTED_BOOK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§eHelp Book");
-		meta.setLore(
-				Arrays.asList("", "  §aLeft click§8 a message to edit it", "  §aRight click§8 a message to remove it",
-						"  §aLeft click§8 \"§aNew Message§8\" to add an additional message", "  §3Available Variables:",
-						"    §e%n§7 - the player's name", "    §e%b§7 - the player's balance",
-						"    §e%p§7 - the price of the mob"));
-		item.setItemMeta(meta);
-
-		i.setItem(i.getSize() - 5, item);
-
-		// "New Message" Emerald Block
-		item = new ItemStack(Material.EMERALD_BLOCK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§aNew Message");
-		item.setItemMeta(meta);
-
-		i.setItem(i.getSize() - 4, item);
-
-		// "Command"s Empty Map
-		for (int k = 0; k < mob.getMessages().size(); k++) {
-			item = new ItemStack(Material.EMPTY_MAP, k + 1);
-			meta = item.getItemMeta();
-			meta.setDisplayName("§9Message");
-			meta.setLore(Arrays.asList("§bCurrent Message:", "  §3" + mob.getMessages().get(k)));
-			item.setItemMeta(meta);
-
-			i.setItem(k, item);
-		}
-
-		if (remove)
-			MESSAGES.remove(player.getUniqueId());
-
-		return i;
+	public UUID getUUID() {
+		return id;
 	}
 
-	private Inventory mobTypeMenu(Mob mob, Player player) {
-		Inventory i = Bukkit.createInventory(null, 18, "§d§lMob Type");
-		ItemStack item;
-		ItemMeta meta;
+	public LivingEntity getEntity() {
+		return a(id);
+	}
 
-		// "Back" redstone block
-		item = new ItemStack(Material.REDSTONE_BLOCK);
-		meta = item.getItemMeta();
-		meta.setDisplayName("§4§lBack");
-		item.setItemMeta(meta);
+	public String getDisplayName() {
+		return (String) properties.get("NAME");
+	}
 
-		i.setItem(17, item);
+	public void setDisplayName(String name) {
+		if (name == null || name.equalsIgnoreCase("%x")) {
+			properties.put("NAME", "%x");
+			// a(id).setCustomNameVisible(false);
+			a(id).setCustomName(null);
+			return;
+		}
+		if (getDisplayName() != null && getDisplayName().contains("%s") && !name.contains("%s")) {
+			SCROLLING_MOBS.remove(this);
+			properties.remove("SCROLL");
+		}
+		if (getDisplayName() != null && !getDisplayName().contains("%s") && name.contains("%s")) {
+			SCROLLING_MOBS.add(this);
+			properties.put("SCROLL", new Scroller(b(name), CommandMobs.config().getInt("settings.mobs.scroll-length"),
+					(int) Math.ceil(.25 * CommandMobs.config().getInt("settings.mobs.scroll-length")), '&'));
+		}
+		if (getDisplayName() != null && getDisplayName().contains("%s") && name.contains("%s")) {
+			properties.put("SCROLL", new Scroller(b(name), CommandMobs.config().getInt("settings.mobs.scroll-length"),
+					(int) Math.ceil(0.25 * CommandMobs.config().getInt("settings.mobs.scroll-length")), '&'));
+			if (!SCROLLING_MOBS.contains(this))
+				SCROLLING_MOBS.add(this);
+		}
+		properties.put("NAME", name);
+		setName(name);
+	}
 
-		for (String str : Mob.VALID_MOB_TYPES) {
-			item = new ItemStack(Material.MONSTER_EGG);
-			net.minecraft.server.v1_11_R1.ItemStack stack = CraftItemStack.asNMSCopy(item);
-			NBTTagCompound tagCompound = stack.getTag();
-			if (tagCompound == null) {
-				tagCompound = new NBTTagCompound();
+	public void setName(String name) {
+		a(id).setCustomName(ChatColor.translateAlternateColorCodes('&', name));
+	}
+
+	public boolean nameDisplays() {
+		return (Boolean) properties.get("NAMED");
+	}
+
+	public void setNameDisplays(boolean displays) {
+		properties.put("NAMED", displays);
+		a(id).setCustomNameVisible(displays);
+	}
+
+	public int getPrice() {
+		return (Integer) properties.get("PRICE");
+	}
+
+	public void setPrice(int price) {
+		if (price < 0) {
+			setPrice(0);
+			return;
+		}
+		properties.put("PRICE", price);
+	}
+
+	/**
+	 * 
+	 * Used to view, add, and remove messages.
+	 * 
+	 */
+	public ArrayList<String> getMessages() {
+		return (ArrayList<String>) properties.get("MESSAGES");
+	}
+
+	/**
+	 * 
+	 * Used to view, add, and remove commands.
+	 * 
+	 */
+	public ArrayList<String> getCommands() {
+		return (ArrayList<String>) properties.get("COMMANDS");
+	}
+
+	public EntityType getEntityType() {
+		return (EntityType) properties.get("TYPE");
+	}
+
+	public void setEntityType(EntityType type) {
+		if (getEntityType().equals(type))
+			return;
+		LivingEntity ent = (LivingEntity) getEntity().getWorld().spawnEntity(getEntity().getLocation(), type);
+		MOBS.remove(id);
+		SCROLLING_MOBS.remove(this);
+		MOBS.put(ent.getUniqueId(), this);
+		UUID old = this.id;
+		this.id = ent.getUniqueId();
+		Bukkit.getPlayer(getRegistrar()).removeMetadata("CUSTOMIZING", CommandMobs.getInstance());
+		Bukkit.getPlayer(getRegistrar()).setMetadata("CUSTOMIZING",
+				new FixedMetadataValue(CommandMobs.getInstance(), id.toString()));
+		properties.put("TYPE", type);
+		applyProperties();
+		CommandMobs.config().set("mobs." + a(old).getType().getName().toLowerCase() + "." + old.toString(), null);
+		CommandMobs.save();
+		CommandMobs.reload();
+		serialize();
+		a(old).remove();
+		CommandMobs.menus.put(ent.getUniqueId(), CommandMobs.createMenus(this));
+	}
+
+	public boolean isBaby() {
+		return (Boolean) ((Map<String, Object>) properties.get("CUSTOMS")).get("BABY");
+	}
+
+	public void setBaby(boolean baby) {
+		if (baby == (boolean) ((Map<String, Object>) properties.get("CUSTOMS")).get("BABY"))
+			return;
+		if (a(id) instanceof Ageable) {
+			if (baby)
+				((Ageable) a(id)).setBaby();
+			else
+				((Ageable) a(id)).setAdult();
+			((Map<String, Object>) properties.get("CUSTOMS")).put("BABY", baby);
+		} else
+			((Map<String, Object>) properties.get("CUSTOMS")).put("BABY", false);
+	}
+
+	public Profession getProfession() {
+		if (properties.get("TYPE").equals(EntityType.VILLAGER))
+			return (Profession) ((Map<String, Object>) properties.get("CUSTOMS")).get("profession");
+		return null;
+	}
+
+	public void setProfession(Profession prof) {
+		if (properties.get("TYPE").equals(EntityType.VILLAGER)) {
+			((Villager) a(id)).setProfession(prof);
+			((Map<String, Object>) properties.get("CUSTOMS")).put("profession", prof);
+		}
+	}
+
+	public DyeColor getWoolColor() {
+		if (properties.get("TYPE").equals(EntityType.SHEEP))
+			return (DyeColor) ((Map<String, Object>) properties.get("CUSTOMS")).get("sheep");
+		return null;
+	}
+
+	public void setWoolColor(DyeColor color) {
+		if (properties.get("TYPE").equals(EntityType.SHEEP)) {
+			((Sheep) a(id)).setColor(color);
+			((Map<String, Object>) properties.get("CUSTOMS")).put("sheep", color);
+		}
+	}
+
+	public Ocelot.Type getCatType() {
+		if (properties.get("TYPE").equals(EntityType.OCELOT))
+			return (Ocelot.Type) ((Map<String, Object>) properties.get("CUSTOMS")).get("cat");
+		return null;
+	}
+
+	public void setCatType(Ocelot.Type catType) {
+		if (properties.get("TYPE").equals(EntityType.OCELOT)) {
+			((Ocelot) a(id)).setCatType(catType);
+			((Map<String, Object>) properties.get("CUSTOMS")).put("cat", catType);
+		}
+	}
+
+	public Style getHorseStyle() {
+		if (properties.get("TYPE").equals(EntityType.HORSE))
+			return (Style) ((Map<String, Object>) properties.get("CUSTOMS")).get("horseStyle");
+		return null;
+	}
+
+	public void setHorseStyle(Style style) {
+		if (properties.get("TYPE").equals(EntityType.HORSE)) {
+			((Horse) a(id)).setStyle(style);
+			((Map<String, Object>) properties.get("CUSTOMS")).put("horseStyle", style);
+		}
+	}
+	
+	public Horse.Color getHorseColor() {
+		if (properties.get("TYPE").equals(EntityType.HORSE))
+			return (Horse.Color) ((Map<String, Object>) properties.get("CUSTOMS")).get("horseColor");
+		return null;
+	}
+	
+	public void setHorseColor(Horse.Color color) {
+		if (properties.get("TYPE").equals(EntityType.HORSE)) {
+			((Horse) a(id)).setColor(color);
+			((Map<String, Object>) properties.get("CUSTOMS")).put("horseColor", color);
+		}
+	}
+
+	public boolean canMove() {
+		return (Boolean) properties.get("MOVE");
+	}
+
+	public void setCanMove(boolean canMove) {
+		properties.put("MOVE", canMove);
+
+		if (canMove)
+			a(id).removePotionEffect(PotionEffectType.SLOW);
+		else
+			a(id).addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 25, true, true));
+
+		a(id).setCollidable(canMove);
+	}
+
+	public boolean killable() {
+		return (Boolean) properties.get("KILL");
+	}
+
+	public void setKillable(boolean killable) {
+		properties.put("KILL", killable);
+	}
+
+	public UUID getRegistrar() {
+		return (UUID) properties.get("REGISTRAR");
+	}
+
+	public String getRegistrarName() {
+		if (properties.containsKey("REGISTRARN"))
+			return (String) properties.get("REGISTRARN");
+		else {
+			try {
+				properties.put("REGISTRARN", NameFetcher.singleName(getRegistrar()));
+			} catch (Exception e) {
+				properties.put("REGISTRARN", "Unknown");
 			}
-			NBTTagCompound id = new NBTTagCompound();
-			id.setString("id", "minecraft:" + str.toLowerCase());
-			tagCompound.set("EntityTag", id);
-			stack.setTag(tagCompound);
-			item = CraftItemStack.asBukkitCopy(stack);
-			if (str.toLowerCase().equals(mob.getEntityType().toString().toLowerCase()))
-				item.addEnchantment(EnchantmentManager.getBlankEnchantment(), 1);
-			meta = item.getItemMeta();
-			meta.setDisplayName("§a§l" + toTitleCase(str.replace('_', ' ').toLowerCase()));
-			item.setItemMeta(meta);
-
-			i.addItem(item);
+			return getRegistrarName();
 		}
-
-		return i;
 	}
 
-	private static String toTitleCase(String input) {
-		StringBuilder titleCase = new StringBuilder();
-		boolean nextTitleCase = true;
-
-		for (char c : input.toCharArray()) {
-			if (Character.isSpaceChar(c)) {
-				nextTitleCase = true;
-			} else if (nextTitleCase) {
-				c = Character.toTitleCase(c);
-				nextTitleCase = false;
-			}
-
-			titleCase.append(c);
-		}
-
-		return titleCase.toString();
+	protected boolean scrolls() {
+		return getScroller() != null;
 	}
 
-	public boolean onCommand(CommandSender cs, Command cmd, String s, String[] args) {
-		if (!(cs instanceof Player)) {
-			cs.sendMessage("You must be a player to use these commands!");
-			return true;
+	protected Scroller getScroller() {
+		return (Scroller) properties.get("SCROLL");
+	}
+
+	// TODO other customizations
+	private void applyProperties() {
+		setDisplayName(getDisplayName());
+		setNameDisplays(nameDisplays());
+		setPrice(getPrice());
+		setKillable(killable());
+		setCanMove(canMove());
+		setBaby(isBaby());
+		setWoolColor(getWoolColor());
+		setCatType(getCatType());
+		setHorseStyle(getHorseStyle());
+		setHorseColor(getHorseColor());
+	}
+
+	protected void serialize() {
+		String path = "mobs." + a(id).getType().getName().toLowerCase() + "." + id.toString() + ".";
+
+		CommandMobs.config().set(path + "name", getDisplayName());
+		CommandMobs.config().set(path + "name-displays", nameDisplays());
+		CommandMobs.config().set(path + "price", getPrice());
+		CommandMobs.config().set(path + "commands", getCommands());
+		CommandMobs.config().set(path + "messages", getMessages());
+		CommandMobs.config().set(path + "registrar", getRegistrar().toString());
+		CommandMobs.config().set(path + "killable", killable());
+		CommandMobs.config().set(path + "move", canMove());
+		for (String str : ((Map<String, Object>) properties.get("CUSTOMS")).keySet())
+			CommandMobs.config().set(path + "customs." + str,
+					((Map<String, Object>) properties.get("CUSTOMS")).get(str).toString());
+
+		CommandMobs.save();
+		CommandMobs.reload();
+	}
+
+	protected void remove(boolean msg) {
+		if (a(id) != null && !a(id).isDead()) {
+			a(id).remove();
 		}
-		Player p = (Player) cs;
-		if (args.length == 0) {
-			p.sendMessage(new String[] { "§e§m§l--------§e§l[§2§l CommandMobs §e§l]§e§l§m--------§r",
-					"  §6Developer: §aZonalYewHD (MisterIosa in-game)", "  §6Version: §a" + CURRENT_VERSION,
-					"  §6Bukkit: §ahttp://bit.ly/cmdMobs" });
-			return true;
-		} else if (args.length == 1) {
-			if (args[0].equalsIgnoreCase("customizer")) {
-				if (p.hasPermission("cmdmobs." + getConfig().getString("permissions.customizer.self"))) {
-					p.getInventory().addItem(SELECTOR);
-					sendMessage(p, "&aYou have received a &eCustomizer&a. To use it, right-click on a CommandMob.");
-					return true;
-				} else {
-					sendMessage(p, noPerms);
-					return true;
-				}
-			} else if (args[0].equalsIgnoreCase("new")) {
-				if (p.hasPermission("cmdmobs." + getConfig().getString("permissions.create"))) {
-					LivingEntity e = ((LivingEntity) p.getWorld().spawnEntity(p.getLocation(), def));
-					Mob.create(e, p.getUniqueId());
-					if (getConfig().getBoolean("settings.customizer-on-create")) {
-						p.getInventory().addItem(SELECTOR);
-						sendMessage(p, "&aYou have created a CommandMob. "
-								+ "To customize it, right-click on it with your &eCustomizer&a.");
-						return true;
-					} else {
-						sendMessage(p,
-								"&aYou have created a CommandMob. "
-										+ "To customize it, right-click on it with a &eCustomizer&a"
-										+ " obtained through &e/cmdmobs customizer&a.");
-						return true;
+		Entity entity = a(id);
+		CommandMobs.config()
+				.set("mobs." + entity.getType().getName().toLowerCase() + "." + entity.getUniqueId().toString(), null);
+		if (msg)
+			if (Bukkit.getPlayer(getRegistrar()) != null)
+				Bukkit.getPlayer(getRegistrar())
+						.sendMessage(CommandMobs.PREFIX + "§cYour CommandMob has been removed!");
+		CommandMobs.save();
+		CommandMobs.reload();
+		properties.clear();
+		SCROLLING_MOBS.remove(this);
+		MOBS.remove(id);
+		id = null;
+	}
+
+	public boolean equals(Mob mob) {
+		return (this.id == mob.id);
+	}
+
+	public static void loadAll() {
+		for (EntityType type : EntityType.values()) {
+			if (type.isAlive() && type.getName() != null)
+				if (CommandMobs.config().contains("mobs." + type.getName().toLowerCase()))
+					for (String s : CommandMobs.config().getConfigurationSection("mobs." + type.getName().toLowerCase())
+							.getKeys(false)) {
+						load(a(UUID.fromString(s)));
 					}
-				} else {
-					sendMessage(p, noPerms);
-					return true;
-				}
-			}
-		} else if (args.length == 2) {
-			if (args[0].equalsIgnoreCase("customizer")) {
-				if (p.hasPermission("cmdmobs." + getConfig().getString("permissions.customizer.other"))) {
-					Player t = Bukkit.getPlayer(args[1]);
-					if (t == null) {
-						sendMessage(p, "&4" + args[1] + "&c is not online!");
-						return true;
-					}
-					t.getInventory().addItem(SELECTOR);
-					sendMessage(p, "&aYou have given &e" + args[1] + "&a a Customizer.");
-					sendMessage(t, "&e" + p.getName()
-							+ "&a gave you a &eCustomizer&a. To use it, right-click on a CommandMob.");
-					return true;
-				} else {
-					sendMessage(p, noPerms);
-					return true;
-				}
-			} else if (args[0].equalsIgnoreCase("new")) {
-				if (Mob.VALID_MOB_TYPES.contains(args[1].toUpperCase())) {
-					if (p.hasPermission("cmdmobs." + getConfig().getString("permissions.create") + "." + args[1])) {
-						LivingEntity e = ((LivingEntity) p.getWorld().spawnEntity(p.getLocation(),
-								Mob.getEntityType(args[1])));
-						e.setCustomName(ChatColor.translateAlternateColorCodes('&',
-								getConfig().getString("settings.defaults.name")));
-						if (!getConfig().getBoolean("settings.defaults.movement"))
-							e.addPotionEffect(new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 15), true);
-						Mob.create(e, p.getUniqueId());
-						if (getConfig().getBoolean("settings.customizer-on-create")) {
-							p.getInventory().addItem(SELECTOR);
-							sendMessage(p, "&aYou have created a CommandMob. "
-									+ "To customize it, right-click on it with your &eCustomizer&a.");
-							return true;
-						} else {
-							sendMessage(p,
-									"&aYou have created a CommandMob. "
-											+ "To customize it, right-click on it with a &eCustomizer&a"
-											+ " obtained through &e/cmdmobs customizer&a.");
-							return true;
+		}
+	}
+
+	protected static Mob create(LivingEntity entity, UUID creator) {
+		Mob a = new Mob(entity.getUniqueId(), creator);
+		String path = "mobs." + entity.getType().getName().toLowerCase() + "." + entity.getUniqueId().toString() + ".";
+
+		CommandMobs.config().set(path + "name", defaultName);
+		CommandMobs.config().set(path + "name-displays", defaultNameDisplays);
+		CommandMobs.config().set(path + "move", defaultMovement);
+		CommandMobs.config().set(path + "price", defaultPrice);
+		CommandMobs.config().set(path + "killable", defaultKillable);
+		CommandMobs.config().set(path + "commands", e("say Hello! I am a CommandMob executing a command for %n!"));
+		CommandMobs.config().set(path + "messages", e("&bI am a CommandMob!"));
+		CommandMobs.config().set(path + "registrar", creator.toString());
+		for (String str : ((Map<String, Object>) a.properties.get("CUSTOMS")).keySet())
+			CommandMobs.config().set(path + "customs." + str,
+					((Map<String, Object>) a.properties.get("CUSTOMS")).get(str).toString());
+		CommandMobs.save();
+		CommandMobs.reload();
+
+		return a;
+	}
+
+	protected static Mob load(LivingEntity entity) {
+		if (entity != null) {
+			if (!entity.isDead()) {
+				if (entity.getType() != null) {
+					if (entity.getType().getName() != null) {
+						if (!CommandMobs.config().contains("mobs." + entity.getType().getName().toLowerCase() + "."
+								+ entity.getUniqueId().toString())) {
+							System.out.println("Config doesn't contain the info!");
+							return null;
 						}
-					} else {
-						sendMessage(p, noPerms);
-						return true;
+						String path = "mobs." + entity.getType().getName().toLowerCase() + "."
+								+ entity.getUniqueId().toString() + ".";
+						Map<String, Object> customs = new HashMap<>();
+						customs.put("BABY", CommandMobs.config().getBoolean(path + "baby"));
+						if (entity.getType().equals(EntityType.VILLAGER))
+							customs.put("profession", ((Villager) entity).getProfession());
+						if (entity.getType().equals(EntityType.SHEEP))
+							customs.put("sheep", ((Sheep) entity).getColor());
+						if (entity.getType().equals(EntityType.OCELOT))
+							customs.put("cat", ((Ocelot) entity).getCatType());
+						if (entity.getType().equals(EntityType.HORSE)) {
+							customs.put("horseStyle", ((Horse) entity).getStyle());
+							customs.put("horseColor", ((Horse) entity).getColor());
+						}
+						// TODO other customizations
+						Mob mob = new Mob(entity.getUniqueId(),
+								UUID.fromString(CommandMobs.config().getString(path + "registrar")),
+								CommandMobs.config().getString(path + "name"),
+								CommandMobs.config().getInt(path + "price"),
+								d(CommandMobs.config().getStringList(path + "commands")),
+								d(CommandMobs.config().getStringList(path + "messages")),
+								CommandMobs.config().getBoolean(path + "move"),
+								CommandMobs.config().getBoolean(path + "killable"),
+								CommandMobs.config().getBoolean(path + "name-displays"),
+								CommandMobs.config().getString(path + "name").contains("%s"), customs);
+						return mob;
 					}
-				} else {
-					sendMessage(p,
-							"§cInvalid mob type! Valid types are §4" + String.join("§c,§4 ", Mob.VALID_MOB_TYPES));
-					return true;
 				}
 			}
 		}
-		sendMessage(p, "§cThe arguments you entered are invalid. Either check your "
-				+ "spelling, or use §4/cm§c to see the Bukkit page for help.");
-		return true;
-
+		return null;
 	}
-
-	protected static FileConfiguration config() {
-		return inst.getConfig();
-	}
-
-	protected static Plugin getInstance() {
-		return Bukkit.getPluginManager().getPlugin("CommandMobs");
-	}
-
-	public static void save() {
-		inst.saveConfig();
-	}
-
-	public static void reload() {
-		inst.reloadConfig();
-	}
-
-	private void sendMessage(Player player, String message) {
-		if (player != null && message != null)
-			player.sendMessage(PREFIX + ChatColor.translateAlternateColorCodes('&', message));
-	}
-
 }
